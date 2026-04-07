@@ -142,67 +142,9 @@ mpirun --hostfile scripts/hostfile -np 4 hostname
 
 ---
 
-## 💻 Código-Fonte
-
-```c
-// src/contagem_mpi.c
-#include <stdio.h>
-#include <stdlib.h>
-#include <mpi.h>
-
-int main(int argc, char *argv[]) {
-    int rank, size, N;
-    int token;
-
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    if (argc < 2) {
-        if (rank == 0)
-            fprintf(stderr, "Uso: %s <N>\n", argv[0]);
-        MPI_Finalize();
-        return 1;
-    }
-
-    N = atoi(argv[1]);
-
-    // Processo 0 inicia o token e imprime o número 0
-    if (rank == 0) {
-        printf("Processo %d (host: %s): imprime 0\n", rank, getenv("HOSTNAME") ?: "?");
-        fflush(stdout);
-        token = 1; // próximo número a imprimir
-        MPI_Send(&token, 1, MPI_INT, (rank + 1) % size, 0, MPI_COMM_WORLD);
-    }
-
-    // Todos os processos entram no loop de passagem de token
-    while (1) {
-        MPI_Recv(&token, 1, MPI_INT, (rank - 1 + size) % size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        if (token > N) {
-            // Propagar sinal de fim para o próximo (exceto o último)
-            if ((rank + 1) % size != 0)
-                MPI_Send(&token, 1, MPI_INT, (rank + 1) % size, 0, MPI_COMM_WORLD);
-            break;
-        }
-
-        printf("Processo %d (host: %s): imprime %d\n", rank, getenv("HOSTNAME") ?: "?", token);
-        fflush(stdout);
-
-        token++;
-        MPI_Send(&token, 1, MPI_INT, (rank + 1) % size, 0, MPI_COMM_WORLD);
-    }
-
-    MPI_Finalize();
-    return 0;
-}
-```
-
----
-
 ## 🔄 Exemplo de Saída
 
-```
+```bash
 $ mpirun --hostfile scripts/hostfile -np 3 ./contagem 10
 
 Processo 0 (host: node0): imprime 0
