@@ -1,173 +1,10 @@
-# 🔢 FGA0244 — Programação para Sistemas Paralelos e Distribuídos
+# FGA0244 — Programação para Sistemas Paralelos e Distribuídos
 
 ## T02 (2026.1) — Contagem Sequencial com MPI em Cluster
 
 > **Disciplina:** FGA0244 - Programação para Sistemas Paralelos e Distribuídos  
 > **Professor:** Francisco W. Cruz — fwcruz@unb.br  
 > **Entrega:** Quarta-feira, 08/04/2026  
-> **Grupo:** 4 alunos
-
----
-
-## 📋 Descrição do Exercício
-
-Implementação de um programa **MPI (Message Passing Interface)** que realiza contagem sequencial de números de `0` até `N`, onde:
-
-- Cada processo imprime **um número por vez**
-- Os processos se organizam para imprimir em **ordem crescente (0, 1, 2, ..., N)**
-- A quantidade de processos é **aleatória**, mas sempre **menor que N**
-- Os processos devem residir em **hosts distintos** (cluster MPI real)
-
----
-
-## 🧠 Lógica do Programa
-
-```
-Processo 0 imprime: 0, P, 2P, ...
-Processo 1 imprime: 1, P+1, 2P+1, ...
-...
-Processo k imprime: k, P+k, 2P+k, ...
-
-Onde P = número de processos
-```
-
-A sincronização garante que apenas **um processo imprime por vez**, usando passagem de mensagens (token de permissão).
-
----
-
-## 📁 Estrutura do Repositório
-
-```
-.
-├── README.md
-├── src/
-│   └── contagem_mpi.c       # Código-fonte principal
-├── scripts/
-│   ├── setup_cluster.sh     # Script de configuração do cluster
-│   ├── run.sh               # Script para execução distribuída
-│   └── hostfile             # Lista de hosts do cluster
-└── docs/
-    └── relatorio.md         # Relatório explicando a solução
-```
-
----
-
-## 🛠️ Pré-requisitos
-
-```bash
-# Instalar OpenMPI no Ubuntu
-sudo apt update
-sudo apt install -y openmpi-bin libopenmpi-dev
-
-# Verificar instalação
-mpicc --version
-mpirun --version
-```
-
----
-
-## ⚙️ Compilação e Execução
-
-### Local (teste rápido)
-
-```bash
-# Compilar
-mpicc -o contagem src/contagem_mpi.c
-
-# Executar com 4 processos, N=20
-mpirun -np 4 ./contagem 20
-```
-
-### Em Cluster (hosts distintos)
-
-```bash
-# Compilar em todos os nós (ou usar NFS)
-mpicc -o contagem src/contagem_mpi.c
-
-# Executar com hostfile
-mpirun --hostfile scripts/hostfile -np 4 ./contagem 20
-```
-
----
-
-## 🖥️ Montagem do Cluster MPI no Ubuntu Linux
-
-### 1. Configurar SSH sem senha entre os nós
-
-```bash
-# No nó mestre, gerar chave SSH
-ssh-keygen -t rsa -b 4096
-
-# Copiar chave para cada nó worker
-ssh-copy-id usuario@node1
-ssh-copy-id usuario@node2
-# ...
-
-# Testar acesso sem senha
-ssh usuario@node1 "hostname"
-```
-
-### 2. Criar o hostfile
-
-```bash
-# scripts/hostfile
-node0 slots=2   # nó mestre
-node1 slots=2   # nó worker 1
-node2 slots=2   # nó worker 2
-```
-
-> 💡 Use IPs ou configure o `/etc/hosts` de todos os nós para resolução de nomes.
-
-### 3. Compartilhar o binário via NFS (recomendado)
-
-```bash
-# No nó mestre — instalar NFS server
-sudo apt install nfs-kernel-server
-
-# Exportar diretório compartilhado
-echo "/home/usuario/mpi_trabalho  *(rw,sync,no_subtree_check)" | sudo tee -a /etc/exports
-sudo exportfs -a
-sudo systemctl restart nfs-kernel-server
-
-# Nos nós workers — montar o diretório
-sudo mount node0:/home/usuario/mpi_trabalho /home/usuario/mpi_trabalho
-```
-
-### 4. Verificar conectividade do cluster
-
-```bash
-# Testar comunicação MPI entre hosts
-mpirun --hostfile scripts/hostfile -np 4 hostname
-```
-
----
-
-## 🔄 Exemplo de Saída
-
-```bash
-$ mpirun --hostfile scripts/hostfile -np 3 ./contagem 10
-
-Processo 0 (host: node0): imprime 0
-Processo 1 (host: node1): imprime 1
-Processo 2 (host: node2): imprime 2
-Processo 0 (host: node0): imprime 3
-Processo 1 (host: node1): imprime 4
-Processo 2 (host: node2): imprime 5
-Processo 0 (host: node0): imprime 6
-Processo 1 (host: node1): imprime 7
-Processo 2 (host: node2): imprime 8
-Processo 0 (host: node0): imprime 9
-Processo 1 (host: node1): imprime 10
-```
-
----
-
-## 📌 Notas Importantes
-
-- O número de processos (`-np`) deve ser **menor que N**
-- A sincronização é feita via **passagem de token** (ring topology)
-- Cada processo sabe seu `rank` e imprime o número atual do token
-- O token circula em anel até ultrapassar N
 
 ---
 
@@ -182,12 +19,292 @@ Processo 1 (host: node1): imprime 10
 
 ---
 
+## 📋 Descrição do Exercício
+
+Implementação de um programa **MPI (Message Passing Interface)** que realiza contagem sequencial de números de `0` até `N`, onde:
+
+- Cada processo imprime **um número por vez**
+- Os processos se organizam para imprimir em **ordem crescente (0, 1, 2, ..., N)**
+- A quantidade de processos é **aleatória**, mas sempre **menor que N**
+- Os processos residem em **hosts distintos** (cluster MPI real)
+
+---
+
+## 💡 Solução — Token Ring
+
+A solução utiliza o padrão **token ring**: os processos formam um anel e passam um token entre si. Só quem tem o token pode imprimir. Isso garante que apenas um processo imprime por vez e que a ordem é sempre sequencial.
+
+```
+node0 → milena → daniel → gabriel → pedro → node0 → ...
+  0         1        2        3        4       5    → ...
+```
+
+---
+
+## 💻 Código-Fonte
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <mpi.h>
+
+#define MASTER 0  // processo 0 é o chefe, ele começa tudo
+#define TAG 0     // tag das mensagens, uso 0 porque só tenho um tipo de mensagem
+#define FIM -1    // uso -1 como sinal pra avisar todo mundo que acabou
+
+int main(int argc, char** argv) {
+    int rank, nprocs;
+    char hostname[256];
+    int hostname_len;
+
+    // inicializo o MPI e descubro quem eu sou (rank) e quantos somos (nprocs)
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(hostname, &hostname_len);
+
+    // se não passar N como argumento, aviso e encerro
+    if (argc < 2) {
+        if (rank == MASTER)
+            fprintf(stderr, "Uso: %s <N>\n", argv[0]);
+        MPI_Finalize();
+        return 1;
+    }
+
+    int N = atoi(argv[1]); // N é o número até onde vou contar
+    int token;             // o token é o número que circula entre os processos
+
+    // só o processo 0 começa — ele imprime o 0 e manda o token pra frente
+    if (rank == MASTER) {
+        token = 0;
+        printf("Processo %d (host: %s): %d\n", rank, hostname, token);
+        fflush(stdout);
+        usleep(10000);
+        token = 1; // incrementa antes de mandar pro próximo
+        MPI_Send(&token, 1, MPI_INT, (MASTER + 1) % nprocs, TAG, MPI_COMM_WORLD);
+    }
+
+    // todos os processos (inclusive o 0) ficam nesse loop esperando o token
+    while (1) {
+        // cada processo espera receber do seu vizinho anterior no anel
+        MPI_Recv(&token, 1, MPI_INT, (rank - 1 + nprocs) % nprocs, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        // se recebi o sinal de fim, repasso pra frente (exceto o MASTER que fecha o anel)
+        if (token == FIM) {
+            if (rank != MASTER)
+                MPI_Send(&token, 1, MPI_INT, (rank + 1) % nprocs, TAG, MPI_COMM_WORLD);
+            break;
+        }
+
+        // se o token passou de N, mando FIM pro próximo e paro
+        if (token > N) {
+            int fim = FIM;
+            MPI_Send(&fim, 1, MPI_INT, (rank + 1) % nprocs, TAG, MPI_COMM_WORLD);
+            break;
+        }
+
+        // se ainda estou dentro do intervalo, imprimo e passo o token adiante
+        printf("Processo %d (host: %s): %d\n", rank, hostname, token);
+        fflush(stdout);
+        usleep(10000); // pequena pausa pra saída sair na ordem certa no terminal
+        token++;
+        MPI_Send(&token, 1, MPI_INT, (rank + 1) % nprocs, TAG, MPI_COMM_WORLD);
+    }
+
+    // encerro o MPI certinho
+    MPI_Finalize();
+    return 0;
+}
+```
+
+---
+
+## 📁 Estrutura do Repositório
+
+```
+.
+├── README.md
+├── src/
+│   └── contagem_mpi.c    # código-fonte principal
+└── scripts/
+    └── hostfile           # lista de hosts do cluster
+```
+
+---
+
+## 🛠️ Pré-requisitos
+
+```bash
+# instalar OpenMPI no Ubuntu
+sudo apt install -y openmpi-bin libopenmpi-dev
+
+# verificar instalação
+mpicc --version
+mpirun --version
+```
+
+---
+
+## ⚙️ Compilação e Execução
+
+### Local (teste rápido)
+
+```bash
+# compilar
+mpicc -o contagem src/contagem_mpi.c
+
+# rodar com 3 processos, N=15
+mpirun -np 3 ./contagem 15
+```
+
+### No Cluster
+
+```bash
+# compilar
+mpicc -o contagem contagem_mpi.c
+
+# rodar com hostfile
+mpirun --hostfile hostfile -np 5 /home/ubuntu/contagem 20
+```
+
+---
+
+## 🖥️ Montagem do Cluster MPI com Multipass
+
+Usamos o **Multipass** para criar 5 máquinas virtuais Ubuntu no Mac, simulando um cluster real com hosts distintos.
+
+### 1. Instalar o Multipass
+
+```bash
+brew install --cask multipass
+```
+
+### 2. Criar as VMs
+
+```bash
+multipass launch --name node0   --cpus 1 --memory 512M
+multipass launch --name milena  --cpus 1 --memory 512M
+multipass launch --name daniel  --cpus 1 --memory 512M
+multipass launch --name gabriel --cpus 1 --memory 512M
+multipass launch --name pedro   --cpus 1 --memory 512M
+```
+
+### 3. Verificar os IPs
+
+```bash
+multipass list
+```
+
+| VM | IP |
+|----|----|
+| node0 | 192.168.2.2 |
+| milena | 192.168.2.3 |
+| daniel | 192.168.2.4 |
+| gabriel | 192.168.2.5 |
+| pedro | 192.168.2.6 |
+
+### 4. Configurar SSH sem senha
+
+No node0, gerar a chave SSH:
+
+```bash
+multipass shell node0
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+cat ~/.ssh/id_rsa.pub
+```
+
+Copiar a chave para as outras VMs (no terminal do Mac):
+
+```bash
+multipass exec milena  -- bash -c "mkdir -p ~/.ssh && echo 'CHAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+multipass exec daniel  -- bash -c "mkdir -p ~/.ssh && echo 'CHAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+multipass exec gabriel -- bash -c "mkdir -p ~/.ssh && echo 'CHAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+multipass exec pedro   -- bash -c "mkdir -p ~/.ssh && echo 'CHAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+```
+
+Testar o SSH sem senha (dentro do node0):
+
+```bash
+ssh ubuntu@192.168.2.3 hostname  # milena
+ssh ubuntu@192.168.2.4 hostname  # daniel
+ssh ubuntu@192.168.2.5 hostname  # gabriel
+ssh ubuntu@192.168.2.6 hostname  # pedro
+```
+
+### 5. Instalar OpenMPI em todas as VMs
+
+```bash
+multipass exec node0   -- sudo apt install -y openmpi-bin libopenmpi-dev
+multipass exec milena  -- sudo apt install -y openmpi-bin libopenmpi-dev
+multipass exec daniel  -- sudo apt install -y openmpi-bin libopenmpi-dev
+multipass exec gabriel -- sudo apt install -y openmpi-bin libopenmpi-dev
+multipass exec pedro   -- sudo apt install -y openmpi-bin libopenmpi-dev
+```
+
+### 6. Criar o hostfile
+
+Dentro do node0:
+
+```bash
+cat > ~/hostfile << 'EOF'
+192.168.2.2 slots=1
+192.168.2.3 slots=1
+192.168.2.4 slots=1
+192.168.2.5 slots=1
+192.168.2.6 slots=1
+EOF
+```
+
+### 7. Compilar e distribuir o binário
+
+```bash
+mpicc -o contagem contagem_mpi.c
+scp contagem ubuntu@192.168.2.3:/home/ubuntu/contagem
+scp contagem ubuntu@192.168.2.4:/home/ubuntu/contagem
+scp contagem ubuntu@192.168.2.5:/home/ubuntu/contagem
+scp contagem ubuntu@192.168.2.6:/home/ubuntu/contagem
+```
+
+---
+
+## 🔄 Saída Esperada
+
+```bash
+mpirun --hostfile hostfile -np 5 /home/ubuntu/contagem 20
+```
+
+```
+Processo 0 (host: node0)   : 0
+Processo 1 (host: milena)  : 1
+Processo 2 (host: daniel)  : 2
+Processo 3 (host: gabriel) : 3
+Processo 4 (host: pedro)   : 4
+Processo 0 (host: node0)   : 5
+Processo 1 (host: milena)  : 6
+Processo 2 (host: daniel)  : 7
+Processo 3 (host: gabriel) : 8
+Processo 4 (host: pedro)   : 9
+Processo 0 (host: node0)   : 10
+Processo 1 (host: milena)  : 11
+Processo 2 (host: daniel)  : 12
+Processo 3 (host: gabriel) : 13
+Processo 4 (host: pedro)   : 14
+Processo 0 (host: node0)   : 15
+Processo 1 (host: milena)  : 16
+Processo 2 (host: daniel)  : 17
+Processo 3 (host: gabriel) : 18
+Processo 4 (host: pedro)   : 19
+Processo 0 (host: node0)   : 20
+```
+
+---
+
 ## 📚 Referências
 
 - [OpenMPI Documentation](https://www.open-mpi.org/doc/)
 - [MPI Tutorial — LLNL](https://hpc-tutorials.llnl.gov/mpi/)
-- [Setting up MPI Cluster on Ubuntu](https://mpitutorial.com/tutorials/running-an-mpi-cluster-within-a-lan/)
-- `man mpirun`, `man mpicc`
+- [Multipass Documentation](https://multipass.run/docs)
 
 ---
 

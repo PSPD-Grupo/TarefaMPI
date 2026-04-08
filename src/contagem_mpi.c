@@ -9,11 +9,14 @@
 
 int main(int argc, char** argv) {
     int rank, nprocs;
+    int hostname_len;
+    char hostname[256];
 
     // inicializo o MPI e descubro quem eu sou (rank) e quantos somos (nprocs)
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(hostname, &hostname_len);
 
     // se não passar N como argumento, aviso e encerro
     if (argc < 2) {
@@ -29,7 +32,7 @@ int main(int argc, char** argv) {
     // só o processo 0 começa — ele imprime o 0 e manda o token pra frente
     if (rank == MASTER) {
         token = 0;
-        printf("Processo %d: %d\n", rank, token);
+        printf("Processo %d (host: %s) : %d\n", rank, hostname, token);   
         fflush(stdout);
         usleep(10000);
         token = 1; // incrementa antes de mandar pro próximo
@@ -56,7 +59,7 @@ int main(int argc, char** argv) {
         }
 
         // se ainda estou dentro do intervalo, imprimo e passo o token adiante
-        printf("Processo %d: %d\n", rank, token);
+        printf("Processo %d (host: %s) : %d\n", rank, hostname, token);
         fflush(stdout);
         usleep(10000); // pequena pausa pra saída sair na ordem certa no terminal
         token++;
