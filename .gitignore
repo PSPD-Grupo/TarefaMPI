@@ -1,1 +1,4 @@
 .vscode/
+contagem
+src/contagem
+*.o
